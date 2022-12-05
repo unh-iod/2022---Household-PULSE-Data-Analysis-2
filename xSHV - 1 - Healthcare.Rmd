@@ -4,10 +4,7 @@ output: html_document
 date: "2022-12-01"
 ---
 
-Reference: 
-https://rstudio-pubs-static.s3.amazonaws.com/382648_93783f69a2fd4df98ade8751c21abbad.html
-https://www.cdc.gov/museum/timeline/covid19.html
-https://www.ncsl.org/research/health/first-covid-19-vaccine-administered-in-the-u-s-magazine2020.aspx
+Reference: https://rstudio-pubs-static.s3.amazonaws.com/382648_93783f69a2fd4df98ade8751c21abbad.html
 
 I'd propose the following model for estimating parameters related to vaccine propagation. 
 $N$: total population
@@ -35,7 +32,6 @@ library(dplyr)
 library(tidyverse)
 library(ggplot2)
 library(scales)
-library(bbmle)
 ```
 
 SIR dataset:
@@ -43,27 +39,29 @@ SIR dataset:
 ```{r}
 df <- read_csv("../../PULSE_vis_setting.csv") %>%
   inner_join(read.csv('../../week.csv'), by='WEEK') %>%
-  mutate(date = as.Date(date, format('%m/%d/%Y')))
+  mutate(date = as.Date(date, format('%m/%d/%Y'))) %>%
+  filter(lbl_setting == 'Healthcare (e.g., hospital, doctor, dentist or mental health specialist office, outpatient facility, long-term care, home health care, pharmacy, medical laboratory)')
 
-tot_workers_only_percent <- df %>% 
+percent <- df %>% 
   filter(lbl_anywork=='Yes' & F_shot=='Total') %>%
   group_by(date) %>%
   summarise(Population = sum(WgtFreq)) %>%
   left_join(df%>%filter(lbl_anywork=='Yes'), by=c('date')) %>%
   group_by(date,F_shot) %>%
   summarise(Percent = sum(WgtFreq)/Population) %>%
-  mutate(lbl_setting = 'Total Workers') %>% unique()
+  mutate(lbl_setting = 'Total Workers') %>% unique() 
 
 weeks <- data.frame('date' = as.Date('2020-12-30') + seq(1:99)*7)
 
-SHV <- tot_workers_only_percent %>%
+SHV <- percent %>%
   select(-c(lbl_setting)) %>%
   pivot_wider(id_cols = date ,names_from = F_shot, values_from = Percent) %>%
   mutate(date = as.Date(ifelse(date == as.Date('2021-01-05') | date == as.Date('2021-02-02'),date+1,date), origin='1970-01-01')) %>%
   right_join(weeks, by = 'date') %>%
   arrange(date) %>%
   ungroup() %>%
-  fill(c(`0`,`1`,Total), .direction = 'down')
+  fill(c(`0`,`1`,Total), .direction = 'down') %>%
+  filter(!is.na(`0`))
 ```
 
 # Create simulator
@@ -94,8 +92,6 @@ s_1 <- function(beta, gamma, S0, H0, V0, times) {
 # returning the output:
   as.data.frame(out)
 }
-
-s_1
 ```
 
 
@@ -116,7 +112,7 @@ ss2 <- function(x) {
   ss(beta = x[1],gamma = x[2], H0 = x[3])
 }
 
-starting_param_val <- c(0.7, 0.001, 0)
+starting_param_val <- c(0.7, 0.01, .70)
 ss_optim <- optim(starting_param_val, ss2)
 
 ss_optim
@@ -134,17 +130,15 @@ predictions%>%
   mutate(tot = S + H + V)
 
 predS_sd <- sd(predictions$S)
-
-plot(predictions$S)
 ```
 
 ```{r}
-tot_workers_only_percent_pred <- SHV %>%
+percent_pred <- SHV %>%
   mutate(Predictions = predictions$S + predictions$H,
          Hesitant = predictions$H) %>%
   pivot_longer(cols=c(`0`,`1`,Total,Predictions, Hesitant), names_to = "F_shot", values_to = "Percent")
 
-SHV_figure1 <- ggplot(data= tot_workers_only_percent_pred, aes(x=date, y=Percent, color=c(F_shot))) + 
+SHV_figure1 <- ggplot(data= percent_pred, aes(x=date, y=Percent, color=c(F_shot))) + 
   geom_line() + 
   scale_y_continuous(labels = comma) +
   geom_vline(xintercept = as.Date('2021-06-01'), linetype='dashed') +
@@ -157,9 +151,81 @@ SHV_figure1 <- ggplot(data= tot_workers_only_percent_pred, aes(x=date, y=Percent
 SHV_figure1
 ```
 
-# Normal Distribution of Errors
+Backward time to get beginning - 
 
 ```{r}
+reverse_extrapolation <-  s_1(beta = ss_optim$par[1], gamma = ss_optim$par[2], 
+    S0 = SHV$`0`[1]-ss_optim$par[3],
+    H0 = ss_optim$par[3],
+    V0 = SHV$`1`[1],
+    times = -1*0:(as.integer(SHV %>% select(date) %>% .[[1,1]] - as.Date('2021-01-06'))/7)
+    ) %>%
+  arrange(time) %>%
+  mutate(date = as.Date(SHV %>% select(date) %>% .[[1,1]]+time*7),
+         Predictions = S + H,
+         Hesitant = H) %>%
+  pivot_longer(cols=c(Predictions, Hesitant), names_to = "F_shot", values_to = "Percent") %>%
+  select(date, F_shot, Percent)
+
+reverse <- percent_pred %>%
+  union(reverse_extrapolation) %>%
+  arrange(date, F_shot)
+```
+
+```{r}
+SHV_figure2 <- ggplot(data= reverse, aes(x=date, y=Percent, color=c(F_shot))) + 
+  geom_line() + 
+  scale_y_continuous(labels = comma) +
+  geom_vline(xintercept = as.Date('2021-06-01'), linetype='dashed') +
+  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.8), color="black", angle=90) +
+  geom_vline(xintercept = as.Date('2021-12-01'), linetype='dashed') +
+  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.8), color="black", angle=90) +
+  geom_vline(xintercept = as.Date('2021-04-14'), linetype='dashed') +
+  geom_text(aes(x=as.Date('2021-04-14'), label="\nSurvey initiates industry data collection", y=0.8), color="black", angle=90) +
+  scale_color_discrete(name="") +
+  geom_hline(yintercept=0,color='light blue')
+
+SHV_figure2
+```
+
+
+```{r}
+reverse_extrapolation2 <-  s_1(beta = ss_optim$par[1], gamma = ss_optim$par[2], 
+    S0 = SHV$`0`[1]-ss_optim$par[3],
+    H0 = ss_optim$par[3],
+    V0 = SHV$`1`[1],
+    times = -1*0:1500/7
+    ) %>%
+  arrange(time) %>%
+  mutate(date = as.Date(SHV %>% select(date) %>% .[[1,1]]+time*7),
+         Predictions = S + H,
+         Hesitant = H) %>%
+  pivot_longer(cols=c(Predictions, Hesitant), names_to = "F_shot", values_to = "Percent") %>%
+  select(date, F_shot, Percent)
+
+reverse2 <- percent_pred %>%
+  union(reverse_extrapolation2) %>%
+  arrange(date, F_shot)
+```
+
+```{r}
+SHV_figure3 <- ggplot(data= reverse2, aes(x=date, y=Percent, color=c(F_shot))) + 
+  geom_line() + 
+  scale_y_continuous(labels = comma) +
+  geom_vline(xintercept = as.Date('2021-06-01'), linetype='dashed') +
+  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.8), color="black", angle=90) +
+  geom_vline(xintercept = as.Date('2021-12-01'), linetype='dashed') +
+  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.8), color="black", angle=90) +
+  geom_vline(xintercept = as.Date('2021-04-14'), linetype='dashed') +
+  geom_text(aes(x=as.Date('2021-04-14'), label="\nSurvey initiates industry data collection", y=0.8), color="black", angle=90) +
+  scale_color_discrete(name="") +
+  geom_hline(yintercept=0,color='light blue')
+
+SHV_figure3
+```
+
+
+```{r warning=FALSE}
 mLL <- function(beta, gamma, H0, data = SHV) {
   S0 <- data$`0`[1] - H0
   V0 <- data$`1`[1]
