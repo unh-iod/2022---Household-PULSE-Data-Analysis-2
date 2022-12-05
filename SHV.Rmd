@@ -19,11 +19,11 @@ $$s(t) = \frac{H(t)}{N(t)}$$
 $$v(t) = \frac{V(t)}{N(t)}$$
 One can then estimate three parameters the initial proportion of hesitant $h(0)$, the vaccination rate $\hat{\beta}$, and presumed increase in vaccine hesitancy $\hat{\gamma}$, rate of reported vaccination  $\hat{\alpha}$ (related to either changes in demographics or vaccination response willingness) and p the proportion split of those dropping off that join the potential Susceptible and Hesitant groups:
 
-$$\frac{ds}{dt} = -\beta S + \alpha p V S$$
+$$\frac{ds}{dt} = -\beta S V -\gamma H S$$
 
-$$\frac{dh}{dt} = \gamma H + \alpha (1-p) V S$$
+$$\frac{dh}{dt} = \gamma H S $$
 
-$$\frac{dv}{dt} = \beta S -\gamma H - \alpha V S$$
+$$\frac{dv}{dt} = \beta S V $$
 
 ```{r}
 library(deSolve)
@@ -65,21 +65,21 @@ SHV <- tot_workers_only_percent %>%
 # Create simulator
 
 ```{r}
-s_1 <- function(beta, gamma, alpha, p = p, S0, H0, V0, times) {
+s_1 <- function(beta, gamma, S0, H0, V0, times) {
   require(deSolve) # for the "ode" function
   
   # the differential equations:
   s_equation <- function(time, variables, parameters) {
   with(as.list(c(variables, parameters)), {
-    dS <- - beta * S + alpha*p * V * S
-    dH <- + gamma * H + alpha*(1-p) * V * S
-    dV <- + beta * S - gamma * H - alpha * V * S
+    dS <- - beta * S * V - gamma * H * S 
+    dH <- + gamma * H * S 
+    dV <- + beta * S * V 
       return(list(c(dS, dH, dV)))
   })
   }
     
   # the parameters values:
-  parameters_values <- c(beta  = beta, gamma = gamma, alpha = alpha, p = p)
+  parameters_values <- c(beta  = beta, gamma = gamma)
   
   # the initial values of variables:
   initial_values <- c(S = S0, H = H0, V = V0)
@@ -100,31 +100,29 @@ ss <- function(beta, gamma, alpha, p, H0, data = SHV) {
   S0 <- data$`0`[1] - H0
   V0 <- data$`1`[1]
   times <- seq(1:length(data$date))-1
-  predictions <- s_1(beta = beta, gamma = gamma, alpha = alpha,    # parameters
+  predictions <- s_1(beta = beta, gamma = gamma,     # parameters
                        H0 = H0,
                        S0 = S0, # variables' intial values
                        V0 = V0,
-                       p = p,
                        times = times)                # time points
   sum(((predictions$S[-1]+predictions$H[-1]) - data$`0`[-1])^2)
 }
 
 ss2 <- function(x) {
-  ss(beta = x[1],gamma = x[2], alpha = x[3], p = x[4], H0 = x[5])
+  ss(beta = x[1],gamma = x[2], H0 = x[3])
 }
 
-starting_param_val <- c(0.001, 0.001, 0.001, 0.5, 0.20)
+starting_param_val <- c(0.7, 0.001, 0)
 ss_optim <- optim(starting_param_val, ss2)
 
 ss_optim
 ```
 
 ```{r}
-predictions <- s_1(beta = ss_optim$par[1], gamma = ss_optim$par[2], alpha = ss_optim$par[3], 
-    S0 = SHV$`0`[1]-ss_optim$par[5],
-    H0 = ss_optim$par[5],
+predictions <- s_1(beta = ss_optim$par[1], gamma = ss_optim$par[2], 
+    S0 = SHV$`0`[1]-ss_optim$par[3],
+    H0 = ss_optim$par[3],
     V0 = SHV$`1`[1],
-    p = ss_optim$par[4],
     times = seq(1:length(SHV$date))-1
     )
 
