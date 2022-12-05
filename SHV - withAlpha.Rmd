@@ -1,0 +1,152 @@
+---
+title: "SHV"
+output: html_document
+date: "2022-12-01"
+---
+
+Reference: https://rstudio-pubs-static.s3.amazonaws.com/382648_93783f69a2fd4df98ade8751c21abbad.html
+
+I'd propose the following model for estimating parameters related to vaccine propagation. 
+$N$: total population
+$V$: vaccinated
+$H$: hesitant
+$S$: susceptible but not vaccinated
+$$N = V+S+H$$
+
+$$1 = \frac{S(t)}{N(t)} +  \frac{V(t)}{N(t)} + \frac{H(t)}{N(t)}$$
+$$h(t) = \frac{H(t)}{N(t)}$$
+$$s(t) = \frac{H(t)}{N(t)}$$
+$$v(t) = \frac{V(t)}{N(t)}$$
+One can then estimate three parameters the initial proportion of hesitant $h(0)$, the vaccination rate $\hat{\beta}$, and presumed increase in vaccine hesitancy $\hat{\gamma}$, rate of reported vaccination  $\hat{\alpha}$ (related to either changes in demographics or vaccination response willingness) and p the proportion split of those dropping off that join the potential Susceptible and Hesitant groups:
+
+$$\frac{ds}{dt} = -\beta S V -\gamma H S + \alpha p V$$
+
+$$\frac{dh}{dt} = \gamma H S + \alpha (1-p) V$$
+
+$$\frac{dv}{dt} = \beta S V - \alpha V$$
+
+```{r}
+library(deSolve)
+library(lubridate)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(scales)
+```
+
+SIR dataset:
+
+```{r}
+df <- read_csv("../../PULSE_vis_setting.csv") %>%
+  inner_join(read.csv('../../week.csv'), by='WEEK') %>%
+  mutate(date = as.Date(date, format('%m/%d/%Y')))
+
+tot_workers_only_percent <- df %>% 
+  filter(lbl_anywork=='Yes' & F_shot=='Total') %>%
+  group_by(date) %>%
+  summarise(Population = sum(WgtFreq)) %>%
+  left_join(df%>%filter(lbl_anywork=='Yes'), by=c('date')) %>%
+  group_by(date,F_shot) %>%
+  summarise(Percent = sum(WgtFreq)/Population) %>%
+  mutate(lbl_setting = 'Total Workers') %>% unique()
+
+weeks <- data.frame('date' = as.Date('2020-12-30') + seq(1:99)*7)
+
+SHV <- tot_workers_only_percent %>%
+  select(-c(lbl_setting)) %>%
+  pivot_wider(id_cols = date ,names_from = F_shot, values_from = Percent) %>%
+  mutate(date = as.Date(ifelse(date == as.Date('2021-01-05') | date == as.Date('2021-02-02'),date+1,date), origin='1970-01-01')) %>%
+  right_join(weeks, by = 'date') %>%
+  arrange(date) %>%
+  ungroup() %>%
+  fill(c(`0`,`1`,Total), .direction = 'down')
+```
+
+# Create simulator
+
+```{r}
+s_1 <- function(beta, gamma, alpha, p = p, S0, H0, V0, times) {
+  require(deSolve) # for the "ode" function
+  
+  # the differential equations:
+  s_equation <- function(time, variables, parameters) {
+  with(as.list(c(variables, parameters)), {
+    dS <- - beta * S * V - gamma * H * S + alpha*(p) * V
+    dH <- + gamma * H * S + alpha*(1-p) * V
+    dV <- + beta * S * V - alpha * V
+      return(list(c(dS, dH, dV)))
+  })
+  }
+    
+  # the parameters values:
+  parameters_values <- c(beta  = beta, gamma = gamma, alpha = alpha, p = p)
+  
+  # the initial values of variables:
+  initial_values <- c(S = S0, H = H0, V = V0)
+  
+  # solving
+  out <- ode(initial_values, times, s_equation, parameters_values)
+
+# returning the output:
+  as.data.frame(out)
+}
+
+s_1
+```
+
+
+```{r}
+ss <- function(beta, gamma, alpha, p, H0, data = SHV) {
+  S0 <- data$`0`[1] - H0
+  V0 <- data$`1`[1]
+  times <- seq(1:length(data$date))-1
+  predictions <- s_1(beta = beta, gamma = gamma, alpha = alpha,    # parameters
+                       H0 = H0,
+                       S0 = S0, # variables' intial values
+                       V0 = V0,
+                       p = p,
+                       times = times)                # time points
+  sum(((predictions$S[-1]+predictions$H[-1]) - data$`0`[-1])^2)
+}
+
+ss2 <- function(x) {
+  ss(beta = x[1],gamma = x[2], alpha = x[3], p = x[4], H0 = x[5])
+}
+
+starting_param_val <- c(0.7, 0.001, -0.03, 0.7, 0.2)
+ss_optim <- optim(starting_param_val, ss2)
+
+ss_optim
+```
+
+```{r}
+predictions <- s_1(beta = ss_optim$par[1], gamma = ss_optim$par[2], alpha = ss_optim$par[3], 
+    S0 = SHV$`0`[1]-ss_optim$par[5],
+    H0 = ss_optim$par[5],
+    V0 = SHV$`1`[1],
+    p = ss_optim$par[4],
+    times = seq(1:length(SHV$date))-1
+    )
+
+predictions%>%
+  mutate(tot = S + H + V)
+```
+
+```{r}
+tot_workers_only_percent_pred <- SHV %>%
+  mutate(Predictions = predictions$S + predictions$H,
+         Hesitant = predictions$H) %>%
+  pivot_longer(cols=c(`0`,`1`,Total,Predictions, Hesitant), names_to = "F_shot", values_to = "Percent")
+
+SHV_figure1 <- ggplot(data= tot_workers_only_percent_pred, aes(x=date, y=Percent, color=c(F_shot))) + 
+  geom_line() + 
+  scale_y_continuous(labels = comma) +
+  geom_vline(xintercept = as.Date('2021-06-01'), linetype='dashed') +
+  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.8), color="black", angle=90) +
+  geom_vline(xintercept = as.Date('2021-12-01'), linetype='dashed') +
+  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.8), color="black", angle=90) +
+  scale_color_discrete(name="") +
+  geom_hline(yintercept=0,color='light blue')
+
+SHV_figure1
+```
