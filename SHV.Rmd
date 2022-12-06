@@ -64,6 +64,8 @@ SHV <- tot_workers_only_percent %>%
   arrange(date) %>%
   ungroup() %>%
   fill(c(`0`,`1`,Total), .direction = 'down')
+
+SHV %>% write.csv('raw_SHV.csv')
 ```
 
 # Create simulator
