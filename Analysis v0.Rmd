@@ -13,6 +13,7 @@ library(tidyverse)
 library(readxl)
 library(scales)
 library(plotly)
+library(ggrepel) 
 ```
 
 # Read in data
@@ -140,19 +141,32 @@ tot_workers_only_percent <- df %>%
   summarise(Percent = sum(WgtFreq)/Population) %>%
   mutate(lbl_setting = 'Total Workers') %>% unique()
 
+tot_workers_only_percent_CI <- read.csv('../../PULSE_vis_anywork.csv') %>%
+  filter(lbl_anywork=='Yes') %>%
+  inner_join(read.csv('../../week.csv'), by='WEEK') %>%
+  mutate(date = as.Date(date, format('%m/%d/%Y')),
+         lbl_setting = 'Total Workers',
+         Percent = Percent/100,
+         UpperCI = Percent + qnorm(0.975)*as.double(StdErr)/100,
+         LowerCI = Percent - qnorm(0.975)*as.double(StdErr)/100) %>%
+  select(date,F_shot,lbl_setting,LowerCI,UpperCI)
 
-Vaccination_figure2a <- ggplot(data= tot_workers_only_percent, aes(x=date, y=Percent, color=c(F_shot))) + 
+tot_workers_only_percent <- tot_workers_only_percent %>%
+  ungroup() %>%
+  inner_join(tot_workers_only_percent_CI, by=c('date','F_shot','lbl_setting'))
+
+
+ggplot(data= tot_workers_only_percent %>% filter(F_shot == '1'), aes(x=date, y=Percent, linetype = lbl_setting)) + 
   geom_line() + 
-  scale_y_continuous(labels = comma) +
   geom_vline(xintercept = as.Date('2021-06-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.8), color="black", angle=90) +
+  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.5), color="black", angle=90) +
   geom_vline(xintercept = as.Date('2021-12-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.8), color="black", angle=90) +
-  scale_color_discrete(name="") +
-  geom_hline(yintercept=0,color='light blue')
-
-
-Vaccination_figure2a
+  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.5), color="black", angle=90) +
+  geom_hline(yintercept=0,color='light gray') + 
+  geom_ribbon(aes(ymin = LowerCI, ymax = UpperCI), alpha = 0.2)
+  ggtitle("Total Workers") + 
+  scale_x_date(date_breaks = "1 month", date_labels = "%m-%Y") +
+  theme(axis.text.x=element_text(angle=60, hjust=1))
 ```
 
 ```{r}
@@ -177,6 +191,22 @@ workers_only_percent <- df %>%
          lbl_setting = str_replace(lbl_setting,'\x94',''),
          lbl_setting = ifelse(nchar(lbl_setting)>65,paste(str_sub(lbl_setting,1,65),"...",sep = ""),lbl_setting))
  
+workers_only_percent_CI <- read.csv('../../PULSE_vis_setting.csv') %>%
+  filter(lbl_anywork=='Yes') %>%
+  inner_join(read.csv('../../week.csv'), by='WEEK') %>%
+  mutate(date = as.Date(date, format('%m/%d/%Y')),
+         Percent = Percent/100,
+         UpperCI = Percent + qnorm(0.975)*as.double(StdErr)/100,
+         LowerCI = Percent - qnorm(0.975)*as.double(StdErr)/100,
+         lbl_setting = str_replace(lbl_setting,'\x93',''),
+         lbl_setting = str_replace(lbl_setting,'\x94',''),
+         lbl_setting = ifelse(nchar(lbl_setting)>65,paste(str_sub(lbl_setting,1,65),"...",sep = ""),lbl_setting),
+         lbl_setting = 
+           ifelse(lbl_wkvol=='No' & !is.na(lbl_wkvol),'Workers at home',lbl_setting)) %>%
+  select(date,F_shot,lbl_setting,LowerCI,UpperCI)
+
+workers_only_percent <- workers_only_percent %>%
+  inner_join(workers_only_percent_CI, by=c('date','F_shot','lbl_setting'))
 ```
 
 Healthcare workers
@@ -196,19 +226,40 @@ Vaccination_figure3
 ```
 
 ```{r}
-Vaccination_figure3a <- ggplot(data= tot_workers_only_percent %>% union(workers_only_percent %>% filter(grepl('Healthcare (e.g., ',lbl_setting, fixed=TRUE))), aes(x=date, y=Percent, color=F_shot, linetype = lbl_setting)) + 
+proportion_chart_gen <- function(data, title){
+  ggplot(data= data, aes(x=date, y=Percent, linetype = lbl_setting)) + 
+  geom_text(aes(x=as.Date('2021-02-03'), label="Phase 3", y=0.1), color="light grey") +
+  geom_rect(aes(xmin=as.Date('2021-04-14'), xmax=as.Date('2021-07-21'), ymin=0, ymax=Inf), alpha=0.05, fill = 'light grey') +
+  geom_text(aes(x=as.Date('2021-05-26'), label="Phase 3.1", y=0.1), color="dark grey") +
+  geom_text(aes(x=as.Date('2021-09-15'), label="Phase 3.2", y=0.1), color="light grey") +
+  geom_rect(aes(xmin=as.Date('2021-12-13'), xmax=as.Date('2022-03-14'), ymin=0, ymax=Inf), alpha=0.05, fill = 'light grey') +
+  geom_text(aes(x=as.Date('2022-01-26'), label="Phase 3.3", y=0.1), color="dark grey") +
+  geom_text(aes(x=as.Date('2022-04-27'), label="Phase 3.4", y=0.1), color="light grey") +
+  geom_rect(aes(xmin=as.Date('2022-06-01'), xmax=as.Date('2022-09-14'), ymin=0, ymax=Inf), alpha=0.05, fill = 'light grey') +
+  geom_text(aes(x=as.Date('2022-07-27'), label="Phase 3.5", y=0.1), color="dark grey") +
+  geom_text(aes(x=as.Date('2022-10-12'), label="Phase 3.6", y=0.1), color="light grey") +
   geom_line() + 
   scale_y_continuous(labels = comma) +
   geom_vline(xintercept = as.Date('2021-06-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.8), color="black", angle=90) +
+  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.5), color="black", angle=90) +
   geom_vline(xintercept = as.Date('2021-12-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.8), color="black", angle=90) +
+  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.5), color="black", angle=90) +
+  geom_ribbon(aes(ymin = LowerCI, ymax = UpperCI), alpha = 0.2) +
   scale_color_discrete(name="") +
   scale_linetype_discrete(name="") +
-  geom_hline(yintercept=0,color='light blue')
+  geom_hline(yintercept=0,color='light gray') + 
+  guides(color = FALSE, size = FALSE) + 
+  ggtitle(title) + 
+  scale_x_date(date_breaks = "1 month", date_labels = "%m-%Y") +
+  theme(axis.text.x=element_text(angle=60, hjust=1))
+}
 
+chart_temp <- tot_workers_only_percent %>% 
+  union(workers_only_percent %>% filter(grepl('Healthcare (e.g., ',lbl_setting, fixed=TRUE))) %>% 
+  filter(F_shot == '1')
 
-Vaccination_figure3a
+proportion_chart_gen(chart_temp, 
+                     chart_temp$lbl_setting %>% unique() %>%.[2])
 ```
 
 Social Services workers
@@ -228,18 +279,12 @@ Vaccination_figure4
 ```
 
 ```{r}
-Vaccination_figure4a <- ggplot(data= tot_workers_only_percent %>% union(workers_only_percent %>% filter(grepl('Social service (e.g., ',lbl_setting, fixed=TRUE))), aes(x=date, y=Percent, color=F_shot, linetype = lbl_setting)) + 
-  geom_line() + 
-  scale_y_continuous(labels = comma) +
-  geom_vline(xintercept = as.Date('2021-06-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.8), color="black", angle=90) +
-  geom_vline(xintercept = as.Date('2021-12-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.8), color="black", angle=90) +
-  scale_color_discrete(name="") +
-  scale_linetype_discrete(name="") +
-  geom_hline(yintercept=0,color='light blue')
+chart_temp <- tot_workers_only_percent %>% 
+  union(workers_only_percent %>% filter(grepl('Social service (e.g., ',lbl_setting, fixed=TRUE))) %>% 
+  filter(F_shot == '1')
 
-Vaccination_figure4a
+proportion_chart_gen(chart_temp, 
+                     chart_temp$lbl_setting %>% unique() %>%.[2])
 ```
 
 Preschool or daycare workers
@@ -259,18 +304,12 @@ Vaccination_figure5
 ```
 
 ```{r}
-Vaccination_figure5a <- ggplot(data= tot_workers_only_percent %>% union(workers_only_percent %>% filter(grepl('Preschool or daycare',lbl_setting, fixed=TRUE))), aes(x=date, y=Percent, color=F_shot, linetype = lbl_setting)) + 
-  geom_line() + 
-  scale_y_continuous(labels = comma) +
-  geom_vline(xintercept = as.Date('2021-06-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.8), color="black", angle=90) +
-  geom_vline(xintercept = as.Date('2021-12-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.8), color="black", angle=90) +
-  scale_color_discrete(name="") +
-  scale_linetype_discrete(name="") +
-  geom_hline(yintercept=0,color='light blue')
+chart_temp <- tot_workers_only_percent %>% 
+  union(workers_only_percent %>% filter(grepl('Preschool or daycare',lbl_setting, fixed=TRUE))) %>% 
+  filter(F_shot == '1')
 
-Vaccination_figure5a
+proportion_chart_gen(chart_temp, 
+                     chart_temp$lbl_setting %>% unique() %>%.[2])
 ```
 
 K-12 workers
@@ -290,18 +329,12 @@ Vaccination_figure6
 ```
 
 ```{r}
-Vaccination_figure6a <- ggplot(data= tot_workers_only_percent %>% union(workers_only_percent %>% filter(grepl('K-12 school',lbl_setting, fixed=TRUE))), aes(x=date, y=Percent, color=F_shot, linetype = lbl_setting)) + 
-  geom_line() + 
-  scale_y_continuous(labels = comma) +
-  geom_vline(xintercept = as.Date('2021-06-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.8), color="black", angle=90) +
-  geom_vline(xintercept = as.Date('2021-12-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.8), color="black", angle=90) +
-  scale_color_discrete(name="") +
-  scale_linetype_discrete(name="") +
-  geom_hline(yintercept=0,color='light blue')
+chart_temp <- tot_workers_only_percent %>% 
+  union(workers_only_percent %>% filter(grepl('K-12 school',lbl_setting, fixed=TRUE))) %>% 
+  filter(F_shot == '1')
 
-Vaccination_figure6a
+proportion_chart_gen(chart_temp, 
+                     chart_temp$lbl_setting %>% unique() %>%.[2])
 ```
 
 Other schools and instructional settings (e.g. 
@@ -321,18 +354,12 @@ Vaccination_figure7
 ```
 
 ```{r}
-Vaccination_figure7a <- ggplot(data= tot_workers_only_percent %>% union(workers_only_percent %>% filter(grepl('Other schools and instructional settings (e.g. ',lbl_setting, fixed=TRUE))), aes(x=date, y=Percent, color=F_shot, linetype = lbl_setting)) + 
-  geom_line() + 
-  scale_y_continuous(labels = comma) +
-  geom_vline(xintercept = as.Date('2021-06-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.8), color="black", angle=90) +
-  geom_vline(xintercept = as.Date('2021-12-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.8), color="black", angle=90) +
-  scale_color_discrete(name="") +
-  scale_linetype_discrete(name="") +
-  geom_hline(yintercept=0,color='light blue')
+chart_temp <- tot_workers_only_percent %>% 
+  union(workers_only_percent %>% filter(grepl('Other schools and instructional settings (e.g. ',lbl_setting, fixed=TRUE))) %>% 
+  filter(F_shot == '1')
 
-Vaccination_figure7a
+proportion_chart_gen(chart_temp, 
+                     chart_temp$lbl_setting %>% unique() %>%.[2])
 ```
 
 First response (e.g.
@@ -352,18 +379,12 @@ Vaccination_figure8
 ```
 
 ```{r}
-Vaccination_figure8a <- ggplot(data= tot_workers_only_percent %>% union(workers_only_percent %>% filter(grepl('First response (e.g.',lbl_setting, fixed=TRUE))), aes(x=date, y=Percent, color=F_shot, linetype = lbl_setting)) + 
-  geom_line() + 
-  scale_y_continuous(labels = comma) +
-  geom_vline(xintercept = as.Date('2021-06-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.8), color="black", angle=90) +
-  geom_vline(xintercept = as.Date('2021-12-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.8), color="black", angle=90) +
-  scale_color_discrete(name="") +
-  scale_linetype_discrete(name="") +
-  geom_hline(yintercept=0,color='light blue')
+chart_temp <- tot_workers_only_percent %>% 
+  union(workers_only_percent %>% filter(grepl('First response (e.g.',lbl_setting, fixed=TRUE))) %>% 
+  filter(F_shot == '1')
 
-Vaccination_figure8a
+proportion_chart_gen(chart_temp, 
+                     chart_temp$lbl_setting %>% unique() %>%.[2])
 ```
 
 Death care (e.g.
@@ -383,18 +404,12 @@ Vaccination_figure9
 ```
 
 ```{r}
-Vaccination_figure9a <- ggplot(data= tot_workers_only_percent %>% union(workers_only_percent %>% filter(grepl('Death care (e.g.',lbl_setting, fixed=TRUE))), aes(x=date, y=Percent, color=F_shot, linetype = lbl_setting)) + 
-  geom_line() + 
-  scale_y_continuous(labels = comma) +
-  geom_vline(xintercept = as.Date('2021-06-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.8), color="black", angle=90) +
-  geom_vline(xintercept = as.Date('2021-12-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.8), color="black", angle=90) +
-  scale_color_discrete(name="") +
-  scale_linetype_discrete(name="") +
-  geom_hline(yintercept=0,color='light blue')
+chart_temp <- tot_workers_only_percent %>% 
+  union(workers_only_percent %>% filter(grepl('Death care (e.g.',lbl_setting, fixed=TRUE))) %>% 
+  filter(F_shot == '1')
 
-Vaccination_figure9a
+proportion_chart_gen(chart_temp, 
+                     chart_temp$lbl_setting %>% unique() %>%.[2])
 ```
 
 Correction facility (e.g.
@@ -414,18 +429,12 @@ Vaccination_figure10
 ```
 
 ```{r}
-Vaccination_figure10a <- ggplot(data= tot_workers_only_percent %>% union(workers_only_percent %>% filter(grepl('Correctional facility (e.g.',lbl_setting, fixed=TRUE))), aes(x=date, y=Percent, color=F_shot, linetype = lbl_setting)) + 
-  geom_line() + 
-  scale_y_continuous(labels = comma) +
-  geom_vline(xintercept = as.Date('2021-06-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.8), color="black", angle=90) +
-  geom_vline(xintercept = as.Date('2021-12-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.8), color="black", angle=90) +
-  scale_color_discrete(name="") +
-  scale_linetype_discrete(name="") +
-  geom_hline(yintercept=0,color='light blue')
+chart_temp <- tot_workers_only_percent %>% 
+  union(workers_only_percent %>% filter(grepl('Correctional facility (e.g.',lbl_setting, fixed=TRUE))) %>% 
+  filter(F_shot == '1')
 
-Vaccination_figure10a
+proportion_chart_gen(chart_temp, 
+                     chart_temp$lbl_setting %>% unique() %>%.[2])
 ```
 
 Food and beverage store (e.g.
@@ -445,18 +454,12 @@ Vaccination_figure11
 ```
 
 ```{r}
-Vaccination_figure11a <- ggplot(data= tot_workers_only_percent %>% union(workers_only_percent %>% filter(grepl('Food and beverage store (e.g.',lbl_setting, fixed=TRUE))), aes(x=date, y=Percent, color=F_shot, linetype = lbl_setting)) + 
-  geom_line() + 
-  scale_y_continuous(labels = comma) +
-  geom_vline(xintercept = as.Date('2021-06-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.8), color="black", angle=90) +
-  geom_vline(xintercept = as.Date('2021-12-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.8), color="black", angle=90) +
-  scale_color_discrete(name="") +
-  scale_linetype_discrete(name="") +
-  geom_hline(yintercept=0,color='light blue')
+chart_temp <- tot_workers_only_percent %>% 
+  union(workers_only_percent %>% filter(grepl('Food and beverage store (e.g.',lbl_setting, fixed=TRUE))) %>% 
+  filter(F_shot == '1')
 
-Vaccination_figure11a
+proportion_chart_gen(chart_temp, 
+                     chart_temp$lbl_setting %>% unique() %>%.[2])
 ```
 
 Agriculture, forestry, 
@@ -476,18 +479,12 @@ Vaccination_figure12
 ```
 
 ```{r}
-Vaccination_figure12a <- ggplot(data= tot_workers_only_percent %>% union(workers_only_percent %>% filter(grepl('Agriculture, forestry, ',lbl_setting, fixed=TRUE))), aes(x=date, y=Percent, color=F_shot, linetype = lbl_setting)) + 
-  geom_line() + 
-  scale_y_continuous(labels = comma) +
-  geom_vline(xintercept = as.Date('2021-06-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.8), color="black", angle=90) +
-  geom_vline(xintercept = as.Date('2021-12-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.8), color="black", angle=90) +
-  scale_color_discrete(name="") +
-  scale_linetype_discrete(name="") +
-  geom_hline(yintercept=0,color='light blue')
+chart_temp <- tot_workers_only_percent %>% 
+  union(workers_only_percent %>% filter(grepl('Agriculture, forestry, ',lbl_setting, fixed=TRUE))) %>% 
+  filter(F_shot == '1')
 
-Vaccination_figure12a
+proportion_chart_gen(chart_temp, 
+                     chart_temp$lbl_setting %>% unique() %>%.[2])
 ```
 
 Food manufacturing facility (e.g.
@@ -507,18 +504,12 @@ Vaccination_figure13
 ```
 
 ```{r}
-Vaccination_figure13a <- ggplot(data= tot_workers_only_percent %>% union(workers_only_percent %>% filter(grepl('Food manufacturing facility (e.g., meat-',lbl_setting, fixed=TRUE))), aes(x=date, y=Percent, color=F_shot, linetype = lbl_setting)) + 
-  geom_line() + 
-  scale_y_continuous(labels = comma) +
-  geom_vline(xintercept = as.Date('2021-06-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.8), color="black", angle=90) +
-  geom_vline(xintercept = as.Date('2021-12-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.8), color="black", angle=90) +
-  scale_color_discrete(name="") +
-  scale_linetype_discrete(name="") +
-  geom_hline(yintercept=0,color='light blue')
+chart_temp <- tot_workers_only_percent %>% 
+  union(workers_only_percent %>% filter(grepl('Food manufacturing facility (e.g., meat-',lbl_setting, fixed=TRUE))) %>% 
+  filter(F_shot == '1')
 
-Vaccination_figure13a
+proportion_chart_gen(chart_temp, 
+                     chart_temp$lbl_setting %>% unique() %>%.[2])
 ```
 
 Non-food manufacturing facility (e.g.
@@ -538,18 +529,12 @@ Vaccination_figure14
 ```
 
 ```{r}
-Vaccination_figure14a <- ggplot(data= tot_workers_only_percent %>% union(workers_only_percent %>% filter(grepl('Non-food manufacturing facility (e.g. metals',lbl_setting, fixed=TRUE))), aes(x=date, y=Percent, color=F_shot, linetype = lbl_setting)) + 
-  geom_line() + 
-  scale_y_continuous(labels = comma) +
-  geom_vline(xintercept = as.Date('2021-06-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.8), color="black", angle=90) +
-  geom_vline(xintercept = as.Date('2021-12-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.8), color="black", angle=90) +
-  scale_color_discrete(name="") +
-  scale_linetype_discrete(name="") +
-  geom_hline(yintercept=0,color='light blue')
+chart_temp <- tot_workers_only_percent %>% 
+  union(workers_only_percent %>% filter(grepl('Non-food manufacturing facility (e.g. metals',lbl_setting, fixed=TRUE))) %>% 
+  filter(F_shot == '1')
 
-Vaccination_figure14a
+proportion_chart_gen(chart_temp, 
+                     chart_temp$lbl_setting %>% unique() %>%.[2])
 ```
 
 Public transit (e.g., bus
@@ -569,18 +554,12 @@ Vaccination_figure15
 ```
 
 ```{r}
-Vaccination_figure15a <- ggplot(data= tot_workers_only_percent %>% union(workers_only_percent %>% filter(grepl('Public transit (e.g., bus',lbl_setting, fixed=TRUE))), aes(x=date, y=Percent, color=F_shot, linetype = lbl_setting)) + 
-  geom_line() + 
-  scale_y_continuous(labels = comma) +
-  geom_vline(xintercept = as.Date('2021-06-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.8), color="black", angle=90) +
-  geom_vline(xintercept = as.Date('2021-12-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.8), color="black", angle=90) +
-  scale_color_discrete(name="") +
-  scale_linetype_discrete(name="") +
-  geom_hline(yintercept=0,color='light blue')
+chart_temp <- tot_workers_only_percent %>% 
+  union(workers_only_percent %>% filter(grepl('Public transit (e.g., bus',lbl_setting, fixed=TRUE))) %>% 
+  filter(F_shot == '1')
 
-Vaccination_figure15a
+proportion_chart_gen(chart_temp, 
+                     chart_temp$lbl_setting %>% unique() %>%.[2])
 ```
 
 United States Postal Service
@@ -600,18 +579,12 @@ Vaccination_figure16
 ```
 
 ```{r}
-Vaccination_figure16a <- ggplot(data= tot_workers_only_percent %>% union(workers_only_percent %>% filter(grepl('United States Postal Service',lbl_setting, fixed=TRUE))), aes(x=date, y=Percent, color=F_shot, linetype = lbl_setting)) + 
-  geom_line() + 
-  scale_y_continuous(labels = comma) +
-  geom_vline(xintercept = as.Date('2021-06-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.8), color="black", angle=90) +
-  geom_vline(xintercept = as.Date('2021-12-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.8), color="black", angle=90) +
-  scale_color_discrete(name="") +
-  scale_linetype_discrete(name="") +
-  geom_hline(yintercept=0,color='light blue')
+chart_temp <- tot_workers_only_percent %>% 
+  union(workers_only_percent %>% filter(grepl('United States Postal Service',lbl_setting, fixed=TRUE))) %>% 
+  filter(F_shot == '1')
 
-Vaccination_figure16a
+proportion_chart_gen(chart_temp, 
+                     chart_temp$lbl_setting %>% unique() %>%.[2])
 ```
 
 Other job deemed “essential” during the COVID-19 pandemic
@@ -631,6 +604,13 @@ Vaccination_figure17
 ```
 
 ```{r}
+chart_temp <- tot_workers_only_percent %>% 
+  union(workers_only_percent %>% filter(grepl('Other job deemed essential',lbl_setting, fixed=TRUE))) %>% 
+  filter(F_shot == '1')
+
+proportion_chart_gen(chart_temp, 
+                     chart_temp$lbl_setting %>% unique() %>%.[2])
+
 Vaccination_figure17a <- ggplot(data= tot_workers_only_percent %>% union(workers_only_percent %>% filter(grepl('Other job deemed essential',lbl_setting, fixed=TRUE))), aes(x=date, y=Percent, color=F_shot, linetype = lbl_setting)) + 
   geom_line() + 
   scale_y_continuous(labels = comma) +
@@ -662,18 +642,12 @@ Vaccination_figure18
 ```
 
 ```{r}
-Vaccination_figure18a <- ggplot(data= tot_workers_only_percent %>% union(workers_only_percent %>% filter(grepl('None of the above',lbl_setting, fixed=TRUE))), aes(x=date, y=Percent, color=F_shot, linetype = lbl_setting)) + 
-  geom_line() + 
-  scale_y_continuous(labels = comma) +
-  geom_vline(xintercept = as.Date('2021-06-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.8), color="black", angle=90) +
-  geom_vline(xintercept = as.Date('2021-12-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.8), color="black", angle=90) +
-  scale_color_discrete(name="") +
-  scale_linetype_discrete(name="") +
-  geom_hline(yintercept=0,color='light blue')
+chart_temp <- tot_workers_only_percent %>% 
+  union(workers_only_percent %>% filter(grepl('None of the above',lbl_setting, fixed=TRUE))) %>% 
+  filter(F_shot == '1')
 
-Vaccination_figure18a
+proportion_chart_gen(chart_temp, 
+                     chart_temp$lbl_setting %>% unique() %>%.[2])
 ```
 
 Workers at home
@@ -693,18 +667,12 @@ Vaccination_figure18
 ```
 
 ```{r}
-Vaccination_figure18a <- ggplot(data= tot_workers_only_percent %>% union(workers_only_percent %>% filter(grepl('Workers at home',lbl_setting, fixed=TRUE))), aes(x=date, y=Percent, color=F_shot, linetype = lbl_setting)) + 
-  geom_line() + 
-  scale_y_continuous(labels = comma) +
-  geom_vline(xintercept = as.Date('2021-06-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-06-01'), label="\nDelta becomes dominant variant", y=0.8), color="black", angle=90) +
-  geom_vline(xintercept = as.Date('2021-12-01'), linetype='dashed') +
-  geom_text(aes(x=as.Date('2021-12-01'), label="\nFirst US Omicron case", y=0.8), color="black", angle=90) +
-  scale_color_discrete(name="") +
-  scale_linetype_discrete(name="") +
-  geom_hline(yintercept=0,color='light blue')
+chart_temp <- tot_workers_only_percent %>% 
+  union(workers_only_percent %>% filter(grepl('Workers at home',lbl_setting, fixed=TRUE))) %>% 
+  filter(F_shot == '1')
 
-Vaccination_figure18a
+proportion_chart_gen(chart_temp, 
+                     chart_temp$lbl_setting %>% unique() %>%.[2])
 ```
 
 ```{r}
