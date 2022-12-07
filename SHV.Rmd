@@ -188,7 +188,10 @@ estimates <- mle2(minuslogl = mLL,
 summary(estimates)
 ```
 
-```{r}
+```{r warning=FALSE, error=FALSE, results='hide'}
 prof <- profile(estimates)
+```
+
+```{r}
 plot(prof, main = NA)
 ```

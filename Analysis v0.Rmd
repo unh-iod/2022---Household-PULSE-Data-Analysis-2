@@ -152,7 +152,7 @@ Vaccination_figure2a <- ggplot(data= tot_workers_only_percent, aes(x=date, y=Per
   geom_hline(yintercept=0,color='light blue')
 
 
-ggplotly(Vaccination_figure2a)
+Vaccination_figure2a
 ```
 
 ```{r}

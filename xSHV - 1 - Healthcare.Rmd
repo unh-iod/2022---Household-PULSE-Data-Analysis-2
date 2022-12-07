@@ -32,6 +32,7 @@ library(dplyr)
 library(tidyverse)
 library(ggplot2)
 library(scales)
+library(bbmle)
 ```
 
 SIR dataset:
@@ -252,7 +253,10 @@ estimates <- mle2(minuslogl = mLL,
 summary(estimates)
 ```
 
+```{r warning=FALSE, error=FALSE, results='hide'}
+#prof <- profile(estimates)
+```
+
 ```{r}
-prof <- profile(estimates)
-plot(prof, main = NA)
+#plot(prof, main = NA)
 ```
