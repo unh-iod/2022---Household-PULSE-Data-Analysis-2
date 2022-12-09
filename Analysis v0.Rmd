@@ -678,3 +678,209 @@ proportion_chart_gen(chart_temp,
 ```{r}
 workers_only_percent %>% ungroup() %>% select(lbl_setting) %>% unique()
 ```
+
+
+# Risk Ratios by industry, overall population
+
+## Compared to all workers
+
+```{r}
+rr_tot <- function(file,title){
+  df <- read_excel(file) %>%
+  mutate(lbl_setting = ifelse(
+                              is.na(str_extract(lbl_setting,'.*?\\(') %>% str_remove('\\(')),
+                              lbl_setting,
+                              str_extract(lbl_setting,'.*?\\(') %>% str_remove('\\('))) %>%
+  mutate(Color = ifelse(pop_r_perc_se==0,'light gray',
+                 ifelse(RR_total_LCI>1,'blue',
+                 ifelse(RR_total_UCI<1,'red','black'))),
+         RR_total_LCI = ifelse(pop_r_perc_se==0,NA,RR_total_LCI),
+         RR_total_UCI = ifelse(pop_r_perc_se==0,NA,RR_total_UCI))
+
+p1<- ggplot(data = df, aes(x=lbl_setting, y=RR_total, color=Color, 
+           text=paste("Sample: ", sample_size, "\n", 
+                      "Percent vacc.: ", round(pop_r_perc,2) ,"%",sep="")
+                 )) + 
+  ggtitle(paste(title,"relative to total workers")) +
+  scale_color_identity() +
+  geom_point(stat="identity") +
+  coord_flip() + 
+  geom_hline(yintercept = 1, linetype='dashed') +
+  geom_errorbar(aes(ymin=RR_total_LCI,ymax=RR_total_UCI, width = 0.01)) +
+  theme(legend.position = "none")
+
+return(ggplotly(p1))
+}
+
+rr_home <- function(file,title){
+df <- read_excel(file) %>%
+  mutate(lbl_setting = ifelse(
+                              is.na(str_extract(lbl_setting,'.*?\\(') %>% str_remove('\\(')),
+                              lbl_setting,
+                              str_extract(lbl_setting,'.*?\\(') %>% str_remove('\\('))) %>%
+  mutate(Color = ifelse(pop_r_perc_se==0,'light gray',
+                 ifelse(RR_home_LCI>1,'blue',
+                 ifelse(RR_home_UCI<1,'red','black'))),
+         RR_home_LCI = ifelse(pop_r_perc_se==0,NA,RR_home_LCI),
+         RR_home_UCI = ifelse(pop_r_perc_se==0,NA,RR_home_UCI))
+
+p2<- ggplot(data = df, aes(x=lbl_setting, y=RR_home, color=Color, 
+           text=paste("Sample: ", sample_size, "\n", 
+                      "Percent vacc.: ", round(pop_r_perc,2) ,"%",sep="")
+                 )) + 
+  ggtitle(paste(title,"relative to total workers at home")) +
+  scale_color_identity() +
+  geom_point(stat="identity") +
+  coord_flip() + 
+  geom_hline(yintercept = 1, linetype='dashed') +
+  geom_errorbar(aes(ymin=RR_home_LCI,ymax=RR_home_UCI, width = 0.01)) +
+  theme(legend.position = "none")
+return(ggplotly(p2))
+}
+
+rr_cat <- function(file,title){
+df <- read_excel(file) %>%
+  mutate(lbl_setting = ifelse(
+                              is.na(str_extract(lbl_setting,'.*?\\(') %>% str_remove('\\(')),
+                              lbl_setting,
+                              str_extract(lbl_setting,'.*?\\(') %>% str_remove('\\('))) %>%
+  mutate(Color = ifelse(pop_r_perc_se==0,'light gray',
+                 ifelse(RR_cat_LCI>1,'blue',
+                 ifelse(RR_cat_UCI<1,'red','black'))),
+         RR_cat_LCI = ifelse(pop_r_perc_se==0,NA,RR_cat_LCI),
+         RR_cat_UCI = ifelse(pop_r_perc_se==0,NA,RR_cat_UCI))
+
+p3<- ggplot(data = df, aes(x=lbl_setting, y=RR_cat, color=Color, 
+           text=paste("Sample: ", sample_size, "\n", 
+                      "Percent vacc.: ", round(pop_r_perc,2) ,"%",sep="")
+                 )) + 
+  ggtitle(paste("Industry Compared within category:", title)) +
+  scale_color_identity() +
+  geom_point(stat="identity") +
+  coord_flip() + 
+  geom_hline(yintercept = 1, linetype='dashed') +
+  geom_errorbar(aes(ymin=RR_cat_LCI,ymax=RR_cat_UCI, width = 0.01)) +
+  theme(legend.position = "none")
+return(ggplotly(p3))
+}
+
+rr_tot('../../populations_vac_table_pop.xlsx','Workers within industry')
+rr_home('../../populations_vac_table_pop.xlsx','Workers within industry')
+rr_cat('../../populations_vac_table_pop.xlsx',NA)
+```
+
+```{r}
+rr_tot('../../populations_vac_table_male.xlsx','Male workers within industry')
+rr_home('../../populations_vac_table_male.xlsx','Male workers within industry')
+rr_cat('../../populations_vac_table_male.xlsx',"Male relative to Female")
+```
+
+```{r}
+rr_tot('../../populations_vac_table_female.xlsx','Female workers within industry')
+rr_home('../../populations_vac_table_female.xlsx','Female workers within industry')
+rr_cat('../../populations_vac_table_female.xlsx',"Female relative to male")
+```
+
+```{r}
+rr_tot('../../populations_vac_table_age1820.xlsx','Age 18-20 workers within industry')
+rr_home('../../populations_vac_table_age1820.xlsx','Age 18-20 workers within industry')
+rr_cat('../../populations_vac_table_age1820.xlsx',"Age 18-20 relative to Age 21-49")
+```
+
+```{r}
+rr_tot('../../populations_vac_table_age2149.xlsx','Age 21-49 workers within industry')
+rr_home('../../populations_vac_table_age2149.xlsx','Age 21-49 workers within industry')
+rr_cat('../../populations_vac_table_age2149.xlsx',NA)
+```
+
+```{r}
+rr_tot('../../populations_vac_table_age50.xlsx','Age 50+ workers within industry')
+rr_home('../../populations_vac_table_age50.xlsx','Age 50+ workers within industry')
+rr_cat('../../populations_vac_table_age50.xlsx',"Age 50+ relative to Age 21-49")
+```
+
+```{r}
+rr_tot('../../populations_vac_table_hisp.xlsx','Hispanic Ethnicity workers within industry')
+rr_home('../../populations_vac_table_hisp.xlsx','Hispanic Ethnicity workers  within industry')
+rr_cat('../../populations_vac_table_hisp.xlsx',"Hispanic Ethnicity workers relative to white workers")
+```
+
+```{r}
+rr_tot('../../populations_vac_table_white.xlsx','White workers within industry')
+rr_home('../../populations_vac_table_white.xlsx','White workers within industry')
+rr_cat('../../populations_vac_table_white.xlsx',NA)
+```
+
+```{r}
+rr_tot('../../populations_vac_table_black.xlsx','Black workers within industry')
+rr_home('../../populations_vac_table_black.xlsx','Black workers within industry')
+rr_cat('../../populations_vac_table_black.xlsx',"Black workers relative to white workers")
+```
+
+```{r}
+rr_tot('../../populations_vac_table_asian.xlsx','Asian workers within industry')
+rr_home('../../populations_vac_table_asian.xlsx','Asian workers within industry')
+rr_cat('../../populations_vac_table_asian.xlsx',"Asian workers relative to white workers")
+```
+
+```{r}
+rr_tot('../../populations_vac_table_other.xlsx','Other (race) workers within industry')
+rr_home('../../populations_vac_table_other.xlsx','Other (race) workers within industry')
+rr_cat('../../populations_vac_table_other.xlsx',"Other (race) workers relative to white workers")
+```
+
+```{r}
+rr_tot('../../populations_vac_table_lhs.xlsx','Workers with education less than HS within industry')
+rr_home('../../populations_vac_table_lhs.xlsx','Workers with education less than HS within industry')
+rr_cat('../../populations_vac_table_lhs.xlsx',"Workers with education less than HS workers relative to HS graduates")
+```
+
+```{r}
+rr_tot('../../populations_vac_table_hs.xlsx','HS graduate workers within industry')
+rr_home('../../populations_vac_table_hs.xlsx','HS graduate workers within industry')
+rr_cat('../../populations_vac_table_hs.xlsx',NA)
+```
+
+```{r}
+rr_tot('../../populations_vac_table_sc.xlsx','Workers with some college within industry')
+rr_home('../../populations_vac_table_sc.xlsx','Workers with some college within industry')
+rr_cat('../../populations_vac_table_sc.xlsx',"Workers with some college relative to HS graduates")
+```
+
+```{r}
+rr_tot('../../populations_vac_table_coll.xlsx','College graduate workers within industry')
+rr_home('../../populations_vac_table_coll.xlsx','College graduate workers within industry')
+rr_cat('../../populations_vac_table_coll.xlsx',"College graduate workers relative to HS graduates")
+```
+
+```{r}
+rr_tot('../../populations_vac_table_wodis.xlsx','Workers without Disability within industry')
+rr_home('../../populations_vac_table_wodis.xlsx','Workers without Disability within industry')
+rr_cat('../../populations_vac_table_wodis.xlsx',"Workers without Disability relative to those with")
+```
+
+```{r}
+rr_tot('../../populations_vac_table_dis.xlsx','Workers with Disability within industry')
+rr_home('../../populations_vac_table_dis.xlsx','Workers with Disability within industry')
+rr_cat('../../populations_vac_table_dis.xlsx',"Workers with Disability relative to those without")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
